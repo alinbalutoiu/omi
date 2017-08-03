@@ -189,12 +189,29 @@ void _ProtocolSocket_Addref(
 #endif /* defined(CONFIG_ENABLE_DEBUG) */
 }
 
+void _ProtocolSocket_Delref(
+    _In_ ProtocolSocket* self,
+    _In_ CallSite cs)
+{
+    ptrdiff_t ref = Atomic_Dec(&self->refCount);
+
+    (void)cs;
+    ((void)ref);
+#if defined(CONFIG_ENABLE_DEBUG)
+    {
+        trace_ProtocolSocket_Release(cs.file, (MI_Uint32)cs.line, self, (unsigned int)ref);
+    }
+#endif /* defined(CONFIG_ENABLE_DEBUG) */
+}
+
 #ifdef _PREFAST_
 #pragma prefast (pop)
 #endif /* _PREFAST_ */
 
 #define ProtocolSocket_Addref(self) \
     _ProtocolSocket_Addref(self, CALLSITE)
+#define ProtocolSocket_Delref(self) \
+    _ProtocolSocket_Delref(self, CALLSITE)
 
 MI_INLINE
 void _ProtocolSocket_Delete(
@@ -203,7 +220,7 @@ void _ProtocolSocket_Delete(
     ProtocolSocket_Release(self);
 }
 
-MI_Result _AddProtocolSocket_Handler(
+static MI_Result _AddProtocolSocket_Handler(
     Selector* self,
     ProtocolSocket* protocolSocket)
 {
@@ -2208,7 +2225,7 @@ static MI_Boolean _RequestCallback(
         (mask & SELECTOR_DESTROY) != 0)
     {
         trace_RequestCallback_Connect_RemovingHandler( handler, mask, handler->base.mask );
-
+        ProtocolSocket_Delref(handler);
         _ProtocolSocket_Cleanup(handler);
     }
 
