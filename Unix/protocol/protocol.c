@@ -189,12 +189,29 @@ void _ProtocolSocket_Addref(
 #endif /* defined(CONFIG_ENABLE_DEBUG) */
 }
 
+void _ProtocolSocket_Delref(
+    _In_ ProtocolSocket* self,
+    _In_ CallSite cs)
+{
+    ptrdiff_t ref = Atomic_Dec(&self->refCount);
+
+    (void)cs;
+    ((void)ref);
+#if defined(CONFIG_ENABLE_DEBUG)
+    {
+        trace_ProtocolSocket_Release(cs.file, (MI_Uint32)cs.line, self, (unsigned int)ref);
+    }
+#endif /* defined(CONFIG_ENABLE_DEBUG) */
+}
+
 #ifdef _PREFAST_
 #pragma prefast (pop)
 #endif /* _PREFAST_ */
 
 #define ProtocolSocket_Addref(self) \
     _ProtocolSocket_Addref(self, CALLSITE)
+#define ProtocolSocket_Delref(self) \
+    _ProtocolSocket_Delref(self, CALLSITE)
 
 MI_INLINE
 void _ProtocolSocket_Delete(
@@ -203,13 +220,23 @@ void _ProtocolSocket_Delete(
     ProtocolSocket_Release(self);
 }
 
-MI_Result _AddProtocolSocket_Handler(
+static MI_Result _AddProtocolSocket_Handler(
     Selector* self,
     ProtocolSocket* protocolSocket)
 {
     MI_Result r = MI_RESULT_OK;
     ProtocolSocket_Addref(protocolSocket);
     r = Selector_AddHandler(self, &(protocolSocket->base));
+    return r;
+}
+
+static MI_Result _RemoveProtocolSocket_Handler(
+    Selector* self,
+    ProtocolSocket* protocolSocket)
+{
+    MI_Result r = MI_RESULT_OK;
+    ProtocolSocket_Delref(protocolSocket);
+    r = Selector_RemoveHandler(self, &(protocolSocket->base));
     return r;
 }
 
@@ -1258,7 +1285,7 @@ static MI_Boolean _ProcessCreateAgentMsg(
 
 //                sleep(2);
                 trace_ServerClosingSocket(handler, handler->base.sock);
-                Selector_RemoveHandler(protocolBase->selector, &(handler->base));
+                _RemoveProtocolSocket_Handler(protocolBase->selector, handler);
                 _ProtocolSocket_Cleanup(handler);
                 Sock_Close(logfd);
                 return r;
@@ -1870,8 +1897,8 @@ static Protocol_CallbackResult _ProcessReceivedMessage(
 
                             // close socket to server
                             trace_EngineClosingSocket(handler, handler->base.sock);
-                            Selector_RemoveHandler(socketAndBase->internalProtocolBase.selector, 
-                                                   &(socketAndBase->protocolSocket.base));
+                            _RemoveProtocolSocket_Handler(socketAndBase->internalProtocolBase.selector, 
+                                                          &socketAndBase->protocolSocket);
 
                             r = _ProtocolSocketTrackerRemoveElement(s);
                             if(MI_RESULT_OK != r)
@@ -2208,7 +2235,7 @@ static MI_Boolean _RequestCallback(
         (mask & SELECTOR_DESTROY) != 0)
     {
         trace_RequestCallback_Connect_RemovingHandler( handler, mask, handler->base.mask );
-
+        ProtocolSocket_Delref(handler);
         _ProtocolSocket_Cleanup(handler);
     }
 
@@ -2915,7 +2942,7 @@ static MI_Result _ProtocolSocketAndBase_New_Server_Connection(
 
     if (!_SendVerifySocketConnMsg(h, VerifySocketConnStartup, s_secretString, INVALID_SOCK))
     {
-        Selector_RemoveHandler(selector, &h->base);
+        _RemoveProtocolSocket_Handler(selector, h);
         return MI_RESULT_FAILED;
     }
 
@@ -2951,7 +2978,7 @@ MI_Result Protocol_New_Agent_Request(
     
     if (!_SendCreateAgentMsg(&socketAndBase->protocolSocket, CreateAgentMsgRequest, uid, gid, 0))
     {
-        Selector_RemoveHandler(selector, &socketAndBase->protocolSocket.base);
+        _RemoveProtocolSocket_Handler(selector, &socketAndBase->protocolSocket);
         Sock_Close(s);
         _ProtocolSocketAndBase_Delete(socketAndBase);
         return MI_RESULT_FAILED;
