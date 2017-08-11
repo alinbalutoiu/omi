@@ -208,7 +208,7 @@ MI_Result _AddProtocolSocket_Handler(
     ProtocolSocket* protocolSocket)
 {
     MI_Result r = MI_RESULT_OK;
-    ProtocolSocket_Addref(protocolSocket);
+//    ProtocolSocket_Addref(protocolSocket);
     r = Selector_AddHandler(self, &(protocolSocket->base));
     return r;
 }
